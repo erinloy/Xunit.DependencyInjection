@@ -1,33 +1,28 @@
-﻿namespace Xunit.DependencyInjection;
+namespace Xunit.DependencyInjection;
 
-internal sealed class HostManager : IHostedService, IDisposable
+internal sealed class HostManager(AssemblyName assemblyName, IMessageSink diagnosticMessageSink)
+    : IHostedService, IDisposable
 {
-    private readonly Dictionary<Type, IHost> _hostMap = new Dictionary<Type, IHost>();
-    private readonly List<IHost> _hosts = new List<IHost>();
+    private readonly Dictionary<Type, DependencyInjectionContext> _hostMap = [];
+    private readonly List<IHost> _hosts = [];
 
     private Type? _defaultStartupType;
-    private IHost? _defaultHost;
-    private readonly AssemblyName _assemblyName;
-    private readonly IMessageSink _diagnosticMessageSink;
+    private DependencyInjectionContext? _defaultHost;
 
-    public HostManager(AssemblyName assemblyName, IMessageSink diagnosticMessageSink)
+    public DependencyInjectionContext? BuildDefaultHost()
     {
-        _assemblyName = assemblyName;
-        _diagnosticMessageSink = diagnosticMessageSink;
+        _defaultStartupType = StartupLoader.GetStartupType(assemblyName);
+
+        if (_defaultStartupType == null) return _defaultHost;
+
+        var value = StartupLoader.CreateHost(_defaultStartupType, assemblyName, diagnosticMessageSink);
+
+        _hosts.Add(value.Host);
+
+        return _defaultHost = value;
     }
 
-    public IHost? BuildDefaultHost()
-    {
-        _defaultStartupType = StartupLoader.GetStartupType(_assemblyName);
-
-        if (_defaultStartupType != null)
-            _hosts.Add(_defaultHost =
-                StartupLoader.CreateHost(_defaultStartupType, _assemblyName, _diagnosticMessageSink));
-
-        return _defaultHost;
-    }
-
-    public IHost GetHost(Type type)
+    public DependencyInjectionContext? GetContext(Type type)
     {
         var startupType = FindStartup(type, out var shared);
         if (startupType == null) return _defaultHost ?? throw MissingDefaultHost("Default startup is required.");
@@ -39,11 +34,11 @@ internal sealed class HostManager : IHostedService, IDisposable
             if (startupType == _defaultStartupType) return _hostMap[startupType] = _defaultHost!;
         }
 
-        var host = StartupLoader.CreateHost(startupType, _assemblyName, _diagnosticMessageSink);
+        var host = StartupLoader.CreateHost(startupType, assemblyName, diagnosticMessageSink);
 
         if (shared) _hostMap[startupType] = host;
 
-        _hosts.Add(host);
+        _hosts.Add(host.Host);
 
         return host;
     }
@@ -98,23 +93,24 @@ internal sealed class HostManager : IHostedService, IDisposable
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        var tasks = new Task[_hosts.Count];
+        _hosts.Reverse();
 
-        for (var index = _hosts.Count - 1; index >= 0; index--)
-            tasks[index] = _hosts[index].StopAsync(cancellationToken);
-
-        return Task.WhenAll(tasks);
+        return Task.WhenAll(_hosts.Select(x => x.StopAsync(cancellationToken)));
     }
 
     //DisposalTracker not support IAsyncDisposable
-    public void Dispose()
-    {
-        for (var index = _hosts.Count - 1; index >= 0; index--)
-        {
-            var task = _hosts[index].DisposeAsync();
+    public void Dispose() => Task.WaitAll(_hosts.Select(DisposeAsync).ToArray());
 
-            if (!task.IsCompletedSuccessfully)
-                task.AsTask().GetAwaiter().GetResult();
+    private static Task DisposeAsync(IDisposable disposable)
+    {
+        switch (disposable)
+        {
+            case IAsyncDisposable ad:
+                return ad.DisposeAsync().AsTask();
+            default:
+                disposable.Dispose();
+
+                return Task.CompletedTask;
         }
     }
 }

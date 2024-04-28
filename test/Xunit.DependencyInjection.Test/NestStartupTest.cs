@@ -1,12 +1,10 @@
 ﻿namespace Xunit.DependencyInjection.Test;
 
-public class NestStartupTest
+public class NestStartupTest(NestStartupTest.Dependency2 dependency)
 {
     private static Type? StartupThatWasUsed { get; set; }
 
-    public Dependency2 Dependency { get; }
-
-    public NestStartupTest(Dependency2 dependency) => Dependency = dependency;
+    public Dependency2 Dependency { get; } = dependency;
 
     [Fact]
     public void ProperStartupWasUsed() => Assert.Equal(typeof(Startup), StartupThatWasUsed);
@@ -30,10 +28,6 @@ public class NestStartupTest
         public void ConfigureServices(IServiceCollection services) =>
             services.AddSingleton<Dependency2>();
 
-        public void Configure(IServiceProvider provider, ITestOutputHelperAccessor accessor)
-        {
-            Assert.NotNull(accessor);
-            XunitTestOutputLoggerProvider.Register(provider);
-        }
+        public void Configure(ITestOutputHelperAccessor accessor) => Assert.NotNull(accessor);
     }
 }

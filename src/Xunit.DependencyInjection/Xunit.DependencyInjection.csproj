@@ -1,9 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net461;netstandard2.0</TargetFrameworks>
-    <Description>Use Microsoft.Extensions.DependencyInjection to inject xunit testclass. If you want write Microsoft.Extensions.Logging to ITestOutputHelper, please install Xunit.DependencyInjection.Logging
+    <TargetFrameworks>net472;netstandard2.1</TargetFrameworks>
+    <Description>Use Microsoft.Extensions.DependencyInjection to inject xunit testclass. If you want write Microsoft.Extensions.Logging to ITestOutputHelper, please install Xunit.DependencyInjection.Logging.
+
 Release notes:
+
+9.2: Add BeforeAfterTest.
+9.1: Support [FromKeyedService].
+9.0: Upgrade TargetFramework version and reference package version.
+8.9: Extends the test framework to execute tests in parallel.
+8.8: Added support `BuildHost` method in startup.
 8.7: Allow missing default startup in some case.
 8.6: Support any awaitable type of async test method.
 8.5: Change analyzer category.
@@ -11,19 +18,11 @@ Release notes:
 8.3: Add ActivitySource(name: Xunit.DependencyInjection) and ValueTask/ValueTask&lt;&gt; support.
 8.2: Fix #60: support IAsyncDisposable.
 8.1: Startup allow static method or class (like Asp.Net Core startup).
-8.0: New feature: Support multiple startup.
-7.7: Add [MethodData], like [MemberData], support injection.
-7.6: Fix #48, each TestRunner should have a different scope.
-7.5: Add XunitTestCaseRunnerAdapter, It will be support more XunitTestCase type.
-7.4: Always set applicationName, unwarp TargetInvocationException.
-7.3: Fix #41, activate ITestOutputHelperAccessor on tests without a constructor.
-7.2: Add Startup analyzer.
-7.1: Fix can't run test case when host.StartAsync() throw exception.
-7.0: Add fixture injection and refactor DependencyInjectionTestFramework, you don't have to declare the [assembly: TestFrameworkAttribute] on normal case.</Description>
+8.0: New feature: Support multiple startup.</Description>
     <PackageTags>xunit ioc di DependencyInjection test</PackageTags>
-    <Version>8.7.2</Version>
+    <Version>9.2.1</Version>
     <PackageReleaseNotes>$(Description)</PackageReleaseNotes>
-    <PublicKey>0024000004800000940000000602000000240000525341310004000001000100b5808d2661c4f48da3683c5a557422a4ca5a132ac461790b148b8eabb94f109dad5ac0c3889f8e68f4923afb429cd5583ed0290540b5ec89a9153c954ad38f2e123ac292ca0f1b495a4bc103e5f7dec05264943f3ee018cb5e8feceff3659470a6837dc1f6c324e3b537245947032eba5c570e47a6573c5d75d9e2b12981f6b1</PublicKey>
+    <PolySharpExcludeGeneratedTypes>System.Runtime.CompilerServices.RequiresLocationAttribute</PolySharpExcludeGeneratedTypes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,19 +32,17 @@ Release notes:
     <Using Include="Xunit.Abstractions" />
     <Using Include="Xunit.Sdk" />
 
-    <InternalsVisibleTo Include="Xunit.DependencyInjection.StaFact" Key="$(PublicKey)" />
-    <InternalsVisibleTo Include="Xunit.DependencyInjection.Test" Key="$(PublicKey)" />
+    <InternalsVisibleTo Include="Xunit.DependencyInjection.StaFact" />
+    <InternalsVisibleTo Include="Xunit.DependencyInjection.Test" />
 
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="6.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="6.0.0" />
-    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="xunit.extensibility.execution" Version="[2.4.2, 3.0.0)" />
 
     <ProjectReference Include="..\Xunit.DependencyInjection.Analyzer\Xunit.DependencyInjection.Analyzer.csproj" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="$(PackageId).targets" Pack="True" PackagePath="build\net461;build\netstandard2.0;buildTransitive\net461;buildTransitive\netstandard2.0;buildMultiTargeting" />
+    <None Include="$(PackageId).targets" Pack="True" PackagePath="build\net472;build\netstandard2.1;buildTransitive\net472;buildTransitive\netstandard2.1;buildMultiTargeting" />
 
     <None Include="..\Xunit.DependencyInjection.Analyzer\tools\*.*" PackagePath="tools" Pack="true" />
     <None Include="..\Xunit.DependencyInjection.Analyzer\bin\$(Configuration)\netstandard2.0\Xunit.DependencyInjection.Analyzer.dll" PackagePath="analyzers\dotnet\cs" Pack="true" />

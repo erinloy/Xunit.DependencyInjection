@@ -3,13 +3,11 @@
 namespace Xunit.DependencyInjection.Test;
 
 [Startup(typeof(Startup2))]
-public class StartupAttributeTest
+public class StartupAttributeTest(StartupAttributeTest.Dependency2 dependency)
 {
     private static Type? StartupThatWasUsed { get; set; }
 
-    public Dependency2 Dependency { get; }
-
-    public StartupAttributeTest(Dependency2 dependency) => Dependency = dependency;
+    public Dependency2 Dependency { get; } = dependency;
 
     [Fact]
     public void ProperStartupWasUsed() => Assert.Equal(typeof(Startup2), StartupThatWasUsed);
@@ -37,11 +35,7 @@ public class StartupAttributeTest
         public void ConfigureServices(IServiceCollection services) =>
             services.AddSingleton<Dependency2>();
 
-        public void Configure(IServiceProvider provider, ITestOutputHelperAccessor accessor)
-        {
-            Assert.NotNull(accessor);
-            XunitTestOutputLoggerProvider.Register(provider);
-        }
+        public void Configure(ITestOutputHelperAccessor accessor) => Assert.NotNull(accessor);
     }
 }
 

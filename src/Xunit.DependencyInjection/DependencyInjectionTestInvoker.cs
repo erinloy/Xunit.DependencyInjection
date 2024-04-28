@@ -6,19 +6,38 @@ using System.Linq.Expressions;
 
 namespace Xunit.DependencyInjection;
 
-public class DependencyInjectionTestInvoker : XunitTestInvoker
+public class DependencyInjectionTestInvoker(
+    IServiceProvider provider,
+    ITest test,
+    IMessageBus messageBus,
+    Type testClass,
+    object?[] constructorArguments,
+    MethodInfo testMethod,
+    object[] testMethodArguments,
+    IReadOnlyList<BeforeAfterTestAttribute> beforeAfterAttributes,
+    ExceptionAggregator aggregator,
+    CancellationTokenSource cancellationTokenSource)
+    : XunitTestInvoker(test, messageBus, testClass, constructorArguments, testMethod, testMethodArguments,
+        beforeAfterAttributes, aggregator, cancellationTokenSource)
 {
-    private static readonly ActivitySource ActivitySource = new("Xunit.DependencyInjection", typeof(DependencyInjectionTestInvoker).Assembly.GetName().Version.ToString());
+    private static readonly ActivitySource ActivitySource = new("Xunit.DependencyInjection", typeof(DependencyInjectionTestInvoker).Assembly.GetName().Version?.ToString());
     private static readonly MethodInfo AsTaskMethod = new Func<ObjectMethodExecutorAwaitable, Task>(AsTask).Method;
-    private readonly IServiceProvider _provider;
 
-    public DependencyInjectionTestInvoker(IServiceProvider provider, ITest test, IMessageBus messageBus,
-        Type testClass, object?[] constructorArguments, MethodInfo testMethod, object[] testMethodArguments,
-        IReadOnlyList<BeforeAfterTestAttribute> beforeAfterAttributes, ExceptionAggregator aggregator,
-        CancellationTokenSource cancellationTokenSource)
-        : base(test, messageBus, testClass, constructorArguments, testMethod, testMethodArguments,
-            beforeAfterAttributes, aggregator, cancellationTokenSource) =>
-        _provider = provider;
+    /// <inheritdoc/>
+    protected override async Task<decimal> InvokeTestMethodAsync(object? testClassInstance)
+    {
+        var beforeAfterTests = provider.GetServices<BeforeAfterTest>().ToArray();
+
+        foreach (var beforeAfterTest in beforeAfterTests)
+            await beforeAfterTest.BeforeAsync(testClassInstance, TestMethod).ConfigureAwait(false);
+
+        var result = await base.InvokeTestMethodAsync(testClassInstance).ConfigureAwait(false);
+
+        for (var index = beforeAfterTests.Length - 1; index >= 0; index--)
+            await beforeAfterTests[index].AfterAsync(testClassInstance, TestMethod).ConfigureAwait(false);
+
+        return result;
+    }
 
     /// <inheritdoc />
     protected override object CallTestMethod(object testClassInstance)
@@ -107,23 +126,15 @@ public class DependencyInjectionTestInvoker : XunitTestInvoker
     {
         try
         {
-            await task.ConfigureAwait(false);
+            await task;
 
             activity?.SetStatus(ActivityStatusCode.Ok);
         }
         catch (Exception ex)
         {
-            while (ex is TargetInvocationException { InnerException: { } } tie)
-            {
-                ex = tie.InnerException;
-            }
+            ex = ex.Unwrap();
 
-            while (ex is AggregateException { InnerException: { } } ae)
-            {
-                ex = ae.InnerException;
-            }
-
-            Aggregator.Add(_provider.GetService<IAsyncExceptionFilter>()?.Process(ex) ?? ex);
+            Aggregator.Add(provider.GetService<IAsyncExceptionFilter>()?.Process(ex) ?? ex);
 
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
         }

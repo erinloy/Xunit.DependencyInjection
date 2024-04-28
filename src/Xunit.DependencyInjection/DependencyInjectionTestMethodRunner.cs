@@ -1,81 +1,76 @@
 ﻿namespace Xunit.DependencyInjection;
 
-public class DependencyInjectionTestMethodRunner : TestMethodRunner<IXunitTestCase>
+public class DependencyInjectionTestMethodRunner(
+    DependencyInjectionTestContext context,
+    ITestMethod testMethod,
+    IReflectionTypeInfo @class,
+    IReflectionMethodInfo method,
+    IEnumerable<IXunitTestCase> testCases,
+    IMessageSink diagnosticMessageSink,
+    IMessageBus messageBus,
+    ExceptionAggregator aggregator,
+    CancellationTokenSource cancellationTokenSource,
+    object?[] constructorArguments)
+    : TestMethodRunner<IXunitTestCase>(testMethod, @class, method, testCases, messageBus, aggregator,
+        cancellationTokenSource)
 {
-    private readonly IServiceProvider _provider;
-    private readonly IMessageSink _diagnosticMessageSink;
-    private readonly object[] _constructorArguments;
-
-    public DependencyInjectionTestMethodRunner(IServiceProvider provider,
-        ITestMethod testMethod,
-        IReflectionTypeInfo @class,
-        IReflectionMethodInfo method,
-        IEnumerable<IXunitTestCase> testCases,
-        IMessageSink diagnosticMessageSink,
-        IMessageBus messageBus,
-        ExceptionAggregator aggregator,
-        CancellationTokenSource cancellationTokenSource,
-        object[] constructorArguments)
-        : base(testMethod, @class, method, testCases, messageBus, aggregator, cancellationTokenSource)
+    // This method has been slightly modified from the original implementation to run tests in parallel
+    // https://github.com/xunit/xunit/blob/2.4.2/src/xunit.execution/Sdk/Frameworks/Runners/TestMethodRunner.cs#L130-L142
+    protected override async Task<RunSummary> RunTestCasesAsync()
     {
-        _provider = provider;
-        _diagnosticMessageSink = diagnosticMessageSink;
-        _constructorArguments = constructorArguments;
-    }
+        if (context.DisableParallelization ||
+            TestCases.Count() < 2 ||
+            TestMethod.TestClass.Class.GetCustomAttributes(typeof(CollectionDefinitionAttribute)).FirstOrDefault() is { } attr &&
+            attr.GetNamedArgument<bool>(nameof(CollectionDefinitionAttribute.DisableParallelization)) ||
+            TestMethod.TestClass.Class.GetCustomAttributes(typeof(DisableParallelizationAttribute)).Any() ||
+            TestMethod.TestClass.Class.GetCustomAttributes(typeof(CollectionAttribute)).Any() && !context.ForcedParallelization ||
+            TestMethod.Method.GetCustomAttributes(typeof(DisableParallelizationAttribute)).Any() ||
+            TestMethod.Method.GetCustomAttributes(typeof(MemberDataAttribute)).Any(a =>
+                a.GetNamedArgument<bool>(nameof(MemberDataAttribute.DisableDiscoveryEnumeration))))
+            return await base.RunTestCasesAsync();
 
-    protected internal static object?[] CreateTestClassConstructorArguments(IServiceProvider provider,
-        object?[] constructorArguments, ExceptionAggregator aggregator)
-    {
-        var unusedArguments = new List<Tuple<int, ParameterInfo>>();
-        Func<IReadOnlyList<Tuple<int, ParameterInfo>>, string>? formatConstructorArgsMissingMessage = null;
+        // Respect MaxParallelThreads by using the MaxConcurrencySyncContext if it exists, mimicking how collections are run
+        // https://github.com/xunit/xunit/blob/2.4.2/src/xunit.execution/Sdk/Frameworks/Runners/XunitTestAssemblyRunner.cs#L169-L176
+        var scheduler = SynchronizationContext.Current == null
+            ? TaskScheduler.Default
+            : TaskScheduler.FromCurrentSynchronizationContext();
 
-        var args = new object?[constructorArguments.Length];
-        for (var index = 0; index < constructorArguments.Length; index++)
-        {
-            if (constructorArguments[index] is DependencyInjectionTestClassRunner.DelayArgument delay)
-            {
-                formatConstructorArgsMissingMessage = delay.FormatConstructorArgsMissingMessage;
+        var tasks = TestCases.Select(testCase => Task.Factory.StartNew(
+            state => RunTestCaseAsync((IXunitTestCase)state!), testCase, CancellationTokenSource.Token,
+            TaskCreationOptions.DenyChildAttach | TaskCreationOptions.HideScheduler, scheduler).Unwrap());
 
-                if (delay.TryGetConstructorArgument(provider, aggregator, out var arg))
-                    args[index] = arg;
-                else
-                    unusedArguments.Add(Tuple.Create(index, delay.Parameter));
-            }
-            else args[index] = constructorArguments[index];
-        }
+        var summary = new RunSummary();
 
-        if (unusedArguments.Count > 0 && formatConstructorArgsMissingMessage != null)
-            aggregator.Add(new TestClassException(formatConstructorArgsMissingMessage(unusedArguments)));
+        foreach (var caseSummary in await Task.WhenAll(tasks))
+            summary.Aggregate(caseSummary);
 
-        return args;
+        return summary;
     }
 
     /// <inheritdoc />
-    protected override async Task<RunSummary> RunTestCaseAsync(IXunitTestCase testCase)
+    protected override Task<RunSummary> RunTestCaseAsync(IXunitTestCase testCase)
     {
         if (testCase is ExecutionErrorTestCase)
-            return await testCase.RunAsync(_diagnosticMessageSink, MessageBus, _constructorArguments,
-                    new(Aggregator), CancellationTokenSource)
-                .ConfigureAwait(false);
+            return testCase.RunAsync(diagnosticMessageSink, MessageBus, constructorArguments,
+                new(Aggregator), CancellationTokenSource);
 
-        var wrappers = _provider.GetServices<IXunitTestCaseRunnerWrapper>().Reverse().ToArray();
+        var wrappers = context.RootServices.GetServices<IXunitTestCaseRunnerWrapper>().Reverse().ToArray();
 
         var type = testCase.GetType();
         do
+            if (wrappers.FirstOrDefault(w => w.TestCaseType == type) is { } adapter)
+                return adapter.RunAsync(testCase, context, diagnosticMessageSink, MessageBus,
+                    constructorArguments, new(Aggregator), CancellationTokenSource);
+        while ((type = type.BaseType) != null);
+
+        return BaseRun(context.RootServices.CreateAsyncScope());
+
+        async Task<RunSummary> BaseRun(AsyncServiceScope scope)
         {
-            var adapter = wrappers.FirstOrDefault(w => w.TestCaseType == type);
-            if (adapter != null)
-                return await adapter.RunAsync(testCase, _provider, _diagnosticMessageSink, MessageBus,
-                        _constructorArguments, new(Aggregator), CancellationTokenSource)
-                    .ConfigureAwait(false);
-        } while ((type = type.BaseType) != null);
-
-        var scope = _provider.GetRequiredService<IServiceScopeFactory>().CreateScope();
-
-        await using (scope.AsAsyncDisposable().ConfigureAwait(false))
-            return await testCase.RunAsync(_diagnosticMessageSink, MessageBus,
-                    CreateTestClassConstructorArguments(scope.ServiceProvider, _constructorArguments, Aggregator),
-                    new(Aggregator), CancellationTokenSource)
-                .ConfigureAwait(false);
+            await using (scope)
+                return await testCase.RunAsync(diagnosticMessageSink, MessageBus,
+                    scope.ServiceProvider.CreateTestClassConstructorArguments(constructorArguments, Aggregator),
+                    new(Aggregator), CancellationTokenSource);
+        }
     }
 }

@@ -15,20 +15,24 @@ public class Startup
             .UseServiceProviderFactory(new AutofacServiceProviderFactory());
 
     public void ConfigureServices(IServiceCollection services) =>
-        services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Debug))
+        services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Debug).AddXunitOutput())
             .AddScoped<IDependency, DependencyClass>()
             .AddScoped<IDependencyWithManagedLifetime, DependencyWithManagedLifetime>()
+            .AddScoped<BeforeAfterTest, TestBeforeAfterTest>()
             .AddHostedService<HostServiceTest>()
             .AddSkippableFactSupport()
             .AddStaFactSupport()
+            .AddKeyedScoped<IFromKeyedServicesTest, FromSmallKeyedServicesTest>("small")
+            .AddKeyedScoped<IFromKeyedServicesTest, FromLargeKeyedServicesTest>("large")
             .AddXRetrySupport()
             .AddSingleton<IAsyncExceptionFilter, DemystifyExceptionFilter>();
 
-    public void Configure(IServiceProvider provider, ITestOutputHelperAccessor accessor)
+    public void Configure(IServiceProvider provider, ITestOutputHelperAccessor accessor,
+        [FromServices] IAsyncExceptionFilter filter, [FromKeyedServices("small")] IFromKeyedServicesTest test)
     {
         Assert.NotNull(accessor);
-
-        XunitTestOutputLoggerProvider.Register(provider);
+        Assert.IsType<DemystifyExceptionFilter>(filter);
+        Assert.IsType<FromSmallKeyedServicesTest>(test);
 
         var listener = new ActivityListener();
 

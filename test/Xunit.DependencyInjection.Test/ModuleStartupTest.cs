@@ -20,18 +20,12 @@ public static class ModuleStartupTest
         public void ConfigureServices(IServiceCollection services) =>
             services.AddSingleton<Dependency>();
 
-        public void Configure(IServiceProvider provider, ITestOutputHelperAccessor accessor)
-        {
-            Assert.NotNull(accessor);
-            XunitTestOutputLoggerProvider.Register(provider);
-        }
+        public void Configure(ITestOutputHelperAccessor accessor) => Assert.NotNull(accessor);
     }
 
-    public class StartupTest
+    public class StartupTest(Dependency dependency)
     {
-        public Dependency Dependency { get; }
-
-        public StartupTest(Dependency dependency) => Dependency = dependency;
+        public Dependency Dependency { get; } = dependency;
 
         [Fact]
         public void ProperStartupWasUsed() => Assert.Equal(typeof(Startup), StartupThatWasUsed);

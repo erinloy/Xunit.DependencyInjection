@@ -16,21 +16,13 @@ public class Startup
 
     public void ConfigureServices(IServiceCollection services) =>
         services.AddSingleton<ModuleStartupTest.Dependency>();
-
-    public void Configure(IServiceProvider provider, ITestOutputHelperAccessor accessor)
-    {
-        Assert.NotNull(accessor);
-        XunitTestOutputLoggerProvider.Register(provider);
-    }
 }
 
-public class NamespaceLevelStartupTest
+public class NamespaceLevelStartupTest(ModuleStartupTest.Dependency dependency)
 {
     public static Type? StartupThatWasUsed { get; set; }
 
-    public ModuleStartupTest.Dependency Dependency { get; }
-
-    public NamespaceLevelStartupTest(ModuleStartupTest.Dependency dependency) => Dependency = dependency;
+    public ModuleStartupTest.Dependency Dependency { get; } = dependency;
 
     [Fact]
     public void ProperStartupWasUsed() => Assert.Equal(typeof(Startup), StartupThatWasUsed);

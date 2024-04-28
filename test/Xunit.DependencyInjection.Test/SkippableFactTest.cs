@@ -4,9 +4,9 @@ using System.Runtime.CompilerServices;
 
 namespace Xunit.DependencyInjection.Test;
 
-public class SkippableFactTest
+public class SkippableFactTest(IDependency dependency)
 {
-    public SkippableFactTest(IDependency _) { }
+    private IDependency Dependency { get; } = dependency;
 
     [SkippableFact]
     public TestAwaitable SkipTest() => new();
@@ -17,7 +17,7 @@ public class SkippableFactTest
 
     private static async Task Delay(int index)
     {
-        await Task.Delay(100).ConfigureAwait(false);
+        await Task.Delay(100);
 
         Skip.If(true, "Skip " + index);
     }
@@ -26,18 +26,15 @@ public class SkippableFactTest
     {
         private bool _isCompleted;
 
-        private readonly List<Action> _onCompletedCallbacks = new();
+        private readonly List<Action> _onCompletedCallbacks = [];
 
-        public TestAwaitable()
+        // Simulate a brief delay before completion
+        public TestAwaitable() => ThreadPool.QueueUserWorkItem(_ =>
         {
-            // Simulate a brief delay before completion
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                Thread.Sleep(100);
+            Thread.Sleep(100);
 
-                SetCompleted();
-            });
-        }
+            SetCompleted();
+        });
 
         private void SetCompleted()
         {
@@ -48,18 +45,14 @@ public class SkippableFactTest
 
         public TestAwaiter GetAwaiter() => new(this);
 
-        public readonly struct TestAwaiter : INotifyCompletion
+        public readonly struct TestAwaiter(TestAwaitable owner) : INotifyCompletion
         {
-            private readonly TestAwaitable _owner;
-
-            public TestAwaiter(TestAwaitable owner) : this() => _owner = owner;
-
-            public bool IsCompleted => _owner._isCompleted;
+            public bool IsCompleted => owner._isCompleted;
 
             public void OnCompleted(Action continuation)
             {
-                if (_owner._isCompleted) continuation();
-                else _owner._onCompletedCallbacks.Add(continuation);
+                if (owner._isCompleted) continuation();
+                else owner._onCompletedCallbacks.Add(continuation);
             }
 
             public void GetResult() => Skip.If(true, "Alway skip");
